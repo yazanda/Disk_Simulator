@@ -11,7 +11,7 @@
 using namespace std;
 
 #define DISK_SIM_FILE "DISK_SIM_FILE.txt"
-#define DISK_SIZE 18
+#define DISK_SIZE 80
 // ============================================================================
 //void decToBinary(int n, char &c)
 //{
@@ -139,6 +139,7 @@ public:
         {
             ret_val = (int)fread(&bufy, 1, 1, sim_disk_fd);
             assert(ret_val == 1);
+            if((int) bufy < 32) bufy = '\0';
             cout << "(" << bufy << ")";
         }
         cout << "'" << endl;
@@ -194,14 +195,16 @@ public:
     /*****Opening File Function*****/
     int OpenFile(string fileName) {
         int fd = this->isExists(fileName);
-        if(fd == -1) //if file is not exists.
+        if(fd == -1) {//if file is not exists.
             cout << "file name " << fileName << " is not exists!" << endl;
-        else if(this->isOpened(fd) && this->OpenfileDescriptors.at(fd)->isInUse()){ //if file is opened.
+            return -1;
+        }
+        int id = this->MainDir[fd]->getFsFile()->getId();
+        if(this->isOpened(id) && this->OpenfileDescriptors.at(id)->isInUse()){ //if file is opened.
             cout << "file name " << fileName << " is opened!" << endl;
             fd = -1;
         } else {
             MainDir[fd]->setUsing(true);
-            int id = MainDir[fd]->getFsFile()->getId();
             this->OpenfileDescriptors.insert({id,MainDir[fd]});
             fd = id;
         }
@@ -215,7 +218,7 @@ public:
             string fileName = this->OpenfileDescriptors.at(fd)->getFileName();
             this->OpenfileDescriptors.erase(fd);
             return fileName;
-        }
+        } else cout << "file is closed!" << endl;
         return "-1";
     }
     // ------------------------------------------------------------------------ //
@@ -245,13 +248,11 @@ public:
                 assert(ret_val == 0);
                 ret_val = (int)fread(&buffer,1,1,this->sim_disk_fd);
                 assert(ret_val == 1);
-                block = (int) buffer-48;
+                block = (int) buffer;
                 offset = (fileSize%block_size);
             }
             else{// if a new block is needed.
-               if( (block = this->getEmptyBlock()) < 0)
-                   break;
-               this->addBlockToFile(fd,block);
+               if( (block = this->getEmptyBlock()) < 0 || this->addBlockToFile(fd,block) < 0) break;
                offset = 0;
                this->OpenfileDescriptors.at(fd)->getFsFile()->incBlocksUsage();
             }
@@ -275,33 +276,33 @@ public:
     // ------------------------------------------------------------------------ //
     /*****Deleting File Function*****/
     int DelFile(string FileName) {
-        int fd = -1, index = 0, i = 0;
-        for(auto & file : this->MainDir) { //pass on the files to find the file to delete.
-            if (file->getFileName() == FileName) {
-                int blockIndex = file->getFsFile()->getIndex();
-                if(blockIndex != -1) {
-                    int len = file->getFsFile()->blocksUsage();
-                    int ret_val;
-                    unsigned char c;
-                    while ((len--) > 0) { //passing on index block.
-                        ret_val = fseek(this->sim_disk_fd, (blockIndex * block_size) + (i++), SEEK_SET);
-                        assert(ret_val == 0);
-                        ret_val = (int) fread(&c, 1, 1, this->sim_disk_fd);
-                        assert(ret_val == 1);
-                        this->deleteBlock((int) c-48); //clear block.
-                    }
-                    this->deleteBlock(blockIndex); //clear the index block.
+        int fd = -1, index, i = 0;
+        index = this->isExists(FileName);
+        if(index != -1 && !this->isOpened(MainDir[index]->getFsFile()->getId())){
+            auto file = MainDir[index];
+            int blockIndex = file->getFsFile()->getIndex();
+            if(blockIndex != -1) {
+                int len = file->getFsFile()->blocksUsage();
+                int ret_val;
+                unsigned char c;
+                while ((len--) > 0) { //passing on index block.
+                    ret_val = fseek(this->sim_disk_fd, (blockIndex * block_size) + (i++), SEEK_SET);
+                    assert(ret_val == 0);
+                    ret_val = (int) fread(&c, 1, 1, this->sim_disk_fd);
+                    assert(ret_val == 1);
+                    this->deleteBlock((int) c); //clear block.
                 }
-                //remove from MainDir and open files.
-                fd = file->getFsFile()->getId();
-                if(isOpened(fd)) this->OpenfileDescriptors.erase(fd);
-                this->fds.push_back(fd);
-                delete file;
-                this->MainDir.erase(MainDir.begin()+index);
-                return fd;
+                this->deleteBlock(blockIndex); //clear the index block.
             }
-            index++;
-        }
+            //remove from MainDir and open files.
+            fd = file->getFsFile()->getId();
+            if(isOpened(fd)) this->OpenfileDescriptors.erase(fd);
+            this->fds.push_back(fd);
+            delete file;
+            this->MainDir.erase(MainDir.begin()+index);
+        } else if(this->isExists(FileName) == -1)
+            cout << "file name " << FileName << " is not exists!" <<endl;
+        else cout << "file name " << FileName << " is opened!" <<endl;
         return fd;
     }
     // ------------------------------------------------------------------------ //
@@ -324,7 +325,7 @@ public:
             assert(ret_val == 0);
             ret_val = (int) fread(&toRead,1,1, this->sim_disk_fd);
             assert(ret_val == 1);
-            blockDir = (int) (toRead - 48);
+            blockDir = (int) toRead;
             charsToRead = min(len,block_size);
             while ((charsToRead--) > 0){ //reading from block.
                 ret_val = fseek(this->sim_disk_fd,(blockDir*block_size)+(i%block_size),SEEK_SET);
@@ -334,67 +335,66 @@ public:
                 lenToRead--;
             }
         }
-        if(readChars > 0) buf[i] = '\0';
+        if(readChars > 0) buf[i] = '\0';//closing the buffer.
         else strcpy(buf,"-1");
         return readChars;
     }
     /****Help Functions****/
-    int createId(){
+    int createId(){//function that finds the first available fd number to use.
         int fd;
-        if(!fds.empty()) {
-            fd = *min_element(fds.begin(), fds.end());
-            for(int i = 0; i < fds.size(); i++){
+        if(!fds.empty()) {//if there's available fds in the vector.
+            fd = *min_element(fds.begin(), fds.end());// get the minimum element in the vector.
+            for(int i = 0; i < fds.size(); i++){// find the fd to remove from vector.
                 if(fds[i] == fd) fds.erase(fds.begin() + i);
             }
         }
         else fd = num_of_files++;
         return fd;
     }
-    int getEmptyBlock(){
+    int getEmptyBlock(){//function that finds the first available block to use.
         int i;
-        for(i = 0; i < this->BitVectorSize && this->BitVector[i] != 0; i++);
-        if(i >= this->BitVectorSize) return -1;
+        for(i = 0; i < this->BitVectorSize && this->BitVector[i] != 0; i++); //passing on the bit vector.
+        if(i >= this->BitVectorSize) return -1; //if the disk is full.
         else {
             this->BitVector[i] = 1;
             freeBlocks--;
             return i;
         }
     }
-    bool isOpened(int fd){
+    bool isOpened(int fd){// function that checks if a file is opened.
         return this->OpenfileDescriptors.find(fd) != this->OpenfileDescriptors.end();
     }
-    int isExists(string name){
+    int isExists(string name){// function that checks if a file is exists on the disk.
+        if(!is_formated) return -1;
         for(int i = 0; i < this->MainDir.size(); i++){
-            if(MainDir[i]->getFileName() == name){
-                return i;
-            }
+            if(MainDir[i]->getFileName() == name) return i;
         }
         return -1;
     }
-    int addBlockToFile(int fd, int block){
+    int addBlockToFile(int fd, int block){// function that adds a block to a file.
         int indexBlockOffset = this->OpenfileDescriptors.at(fd)->getFsFile()->blocksUsage();
-        if(indexBlockOffset == this->block_size)
+        if(indexBlockOffset == this->block_size) //if the file have a maximum number of blocks.
             return -1;
         int index = this->OpenfileDescriptors.at(fd)->getFsFile()->getIndex();
         unsigned char blockNum;
-        blockNum = ((unsigned char) block)+48;
-        int ret_value;
+        blockNum = (unsigned char) block;
+        int ret_value; //writing the block char into the index block.
         ret_value = fseek(this->sim_disk_fd,(index* this->block_size)+indexBlockOffset,SEEK_SET);
         assert(ret_value == 0);
         ret_value = (int)fwrite(&blockNum,1,1, this->sim_disk_fd);
         assert(ret_value == 1);
         return 1;
     }
-    void deleteBlock(int block){
+    void deleteBlock(int block){// function that deletes a block from the disk.
         char toWrite = '\0';
         int ret_val;
-        for(int i = 0; i < block_size; i++) {
+        for(int i = 0; i < block_size; i++) {//writing '\0' in the block.
             ret_val = fseek(this->sim_disk_fd,(block*block_size)+i,SEEK_SET);
             assert(ret_val == 0);
             ret_val = (int) fwrite(&toWrite, 1, 1, this->sim_disk_fd);
             assert(ret_val == 1);
         }
-        this->BitVector[block] = 0;
+        this->BitVector[block] = 0;// updating the bit vector.
         freeBlocks++;
     }
 };

@@ -3,4 +3,4 @@ project(Osfinal)
 
 set(CMAKE_CXX_STANDARD 14)
 
-add_executable(Osfinal main.cpp)
+add_executable(Osfinal sim_disk.cpp)
