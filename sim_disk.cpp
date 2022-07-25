@@ -11,7 +11,7 @@
 using namespace std;
 
 #define DISK_SIM_FILE "DISK_SIM_FILE.txt"
-#define DISK_SIZE 80
+#define DISK_SIZE 64
 
 /***File System Class***/
 class FsFile {
@@ -241,7 +241,7 @@ public:
             assert(ret_val == 1);
             this->OpenfileDescriptors.at(fd)->getFsFile()->incFileSize();
             fileSize++;
-            writtenCharsNum++;
+             writtenCharsNum++;
         }
         if(writtenCharsNum == 0 && fileSize == 0) { //if not have a space to write in a new file.
             this->OpenfileDescriptors.at(fd)->getFsFile()->setIndex(-1);
@@ -304,7 +304,7 @@ public:
             ret_val = (int) fread(&toRead,1,1, this->sim_disk_fd);
             assert(ret_val == 1);
             blockDir = (int) toRead;
-            charsToRead = min(len,block_size);
+            charsToRead = min(lenToRead,block_size);
             while ((charsToRead--) > 0){ //reading from block.
                 ret_val = fseek(this->sim_disk_fd,(blockDir*block_size)+(i%block_size),SEEK_SET);
                 assert(ret_val == 0);
