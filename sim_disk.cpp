@@ -1,5 +1,4 @@
 #include <iostream>
-#include <utility>
 #include <vector>
 #include <map>
 #include <cassert>
@@ -11,14 +10,13 @@
 using namespace std;
 
 #define DISK_SIM_FILE "DISK_SIM_FILE.txt"
-#define DISK_SIZE 64
+#define DISK_SIZE 256
 
 /***File System Class***/
 class FsFile {
-    int file_size;
+    int file_size, file_id;
     int block_in_use;
     int index_block;
-    int file_id;
 public:
     FsFile() {
         file_size = 0;
@@ -44,7 +42,7 @@ class FileDescriptor {
     bool inUse;
 public:
     FileDescriptor(string FileName, FsFile* fsi) {
-        file_name = move(FileName);
+        file_name = FileName;
         fs_file = fsi;
         inUse = true;
     }
@@ -107,7 +105,7 @@ public:
     void listAll() {
         int i;
         for (i = 0; i < this->MainDir.size(); i++) //printing files' information.
-            cout << "index: " << i << ": FileName: " << this->MainDir[i]->getFileName()  <<  " , isInUse: " << this->MainDir[i]->isInUse() << endl;
+            cout << "index: " << i << ": FileName: " << this->MainDir[i]->getFileName()  << " fd: " << MainDir[i]->getFsFile()->getId() << " , isInUse: " << this->MainDir[i]->isInUse() << endl;
         int ret_val;
         char bufy;
         cout << "Disk content: '";
@@ -161,12 +159,10 @@ public:
             return -1;
         FsFile *fs_file;
         FileDescriptor *newFile;
-        int fileId = this->createId();
         fs_file = new FsFile();
-        newFile = new FileDescriptor(move(fileName), fs_file);
-        newFile->getFsFile()->setId(fileId);
+        newFile = new FileDescriptor(fileName, fs_file);
         this->MainDir.push_back(newFile);
-        this->OpenfileDescriptors.insert({fileId,newFile});
+        int fileId = this->OpenFile(fileName);
         return fileId;
     }
     // ------------------------------------------------------------------------ //
@@ -182,7 +178,9 @@ public:
             cout << "file name " << fileName << " is opened!" << endl;
             fd = -1;
         } else {
+            id = this->createId();
             MainDir[fd]->setUsing(true);
+            MainDir[fd]->getFsFile()->setId(id);
             this->OpenfileDescriptors.insert({id,MainDir[fd]});
             fd = id;
         }
@@ -194,7 +192,9 @@ public:
         if(this->isOpened(fd)){
             this->OpenfileDescriptors.at(fd)->setUsing(false);
             string fileName = this->OpenfileDescriptors.at(fd)->getFileName();
+            this->OpenfileDescriptors.at(fd)->getFsFile()->setId(-1);
             this->OpenfileDescriptors.erase(fd);
+            this->fds.push_back(fd);
             return fileName;
         } else cout << "file is closed!" << endl;
         return "-1";
@@ -272,12 +272,9 @@ public:
                 }
                 this->deleteBlock(blockIndex); //clear the index block.
             }
-            //remove from MainDir and open files.
-            fd = file->getFsFile()->getId();
-            if(isOpened(fd)) this->OpenfileDescriptors.erase(fd);
-            this->fds.push_back(fd);
             delete file;
-            this->MainDir.erase(MainDir.begin()+index);
+            this->MainDir.erase(MainDir.begin()+index);//remove from MainDir.
+            fd = 1;
         } else if(this->isExists(FileName) == -1)
             cout << "file name " << FileName << " is not exists!" <<endl;
         else cout << "file name " << FileName << " is opened!" <<endl;
@@ -351,8 +348,7 @@ public:
     }
     int addBlockToFile(int fd, int block){// function that adds a block to a file.
         int indexBlockOffset = this->OpenfileDescriptors.at(fd)->getFsFile()->blocksUsage();
-        if(indexBlockOffset == this->block_size) //if the file have a maximum number of blocks.
-            return -1;
+        if(indexBlockOffset == this->block_size) return -1;//if the file have a maximum number of blocks.
         int index = this->OpenfileDescriptors.at(fd)->getFsFile()->getIndex();
         unsigned char blockNum;
         blockNum = (unsigned char) block;
@@ -389,6 +385,13 @@ int main() {
 
     fsDisk *fs;
     fs = new fsDisk();
+//    fs->fsFormat(1);
+//    char s[20];
+//    for(int i=0;i<128;i++){
+//        sprintf(s,"%d",i);
+//        fs->CreateFile(s);
+//        fs->WriteToFile(i,"1", 1);
+//    }
     int cmd_;
     while(true) {
         cin >> cmd_;
@@ -443,7 +446,7 @@ int main() {
             case 8:   // delete file
                 cin >> fileName;
                 _fd = fs->DelFile(fileName);
-                cout << "DeletedFile: " << fileName << " with File Descriptor #: " << _fd << endl;
+                cout << "DeletedFile: " << fileName << " with returned value #: " << _fd << endl;
                 break;
             default:
                 break;
