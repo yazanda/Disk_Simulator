@@ -10,7 +10,7 @@
 using namespace std;
 
 #define DISK_SIM_FILE "DISK_SIM_FILE.txt"
-#define DISK_SIZE 256
+#define DISK_SIZE 80
 
 /***File System Class***/
 class FsFile {
@@ -155,8 +155,14 @@ public:
     // ------------------------------------------------------------------------ //
     /*****Creating File Function*****/
     int CreateFile(string fileName) {
-        if(!this->is_formated || this->isExists(fileName) != -1)
+        if(!this->is_formated) {
+            cout << "Disk is not formated!" << endl;
             return -1;
+        }
+        if(this->isExists(fileName) != -1){
+            cout << "file name " << fileName << " is exists!" << endl;
+            return -1;
+        }
         FsFile *fs_file;
         FileDescriptor *newFile;
         fs_file = new FsFile();
@@ -202,8 +208,14 @@ public:
     // ------------------------------------------------------------------------ //
     /*****Writing to File Function*****/
     int WriteToFile(int fd, char *buf, int len ) {
-        if(!this->is_formated || !this->isOpened(fd))
+        if(!this->is_formated) {
+            cout << "Disk is not formated!" << endl;
             return -1;
+        }
+        if(!this->isOpened(fd)){
+            cout << "file is closed or not exists!" << endl;
+            return -1;
+        }
         int fileSize = this->OpenfileDescriptors.at(fd)->getFsFile()->getSize();
         int lenToWrite, indexBlock;
         if((fileSize + len) > max_file_size) lenToWrite = max_file_size-fileSize; //if file size isn't enough.
@@ -283,7 +295,13 @@ public:
     // ------------------------------------------------------------------------ //
     /*****Reading from File Function*****/
     int ReadFromFile(int fd, char *buf, int len ) {
-        if(!this->is_formated || !this->isOpened(fd)) {
+        if(!this->is_formated) {
+            cout << "Disk is not formated!" << endl;
+            strcpy(buf,"-1");
+            return -1;
+        }
+        if(!this->isOpened(fd)){
+            cout << "file is closed or not exists!" << endl;
             strcpy(buf,"-1");
             return -1;
         }
@@ -385,13 +403,6 @@ int main() {
 
     fsDisk *fs;
     fs = new fsDisk();
-//    fs->fsFormat(1);
-//    char s[20];
-//    for(int i=0;i<128;i++){
-//        sprintf(s,"%d",i);
-//        fs->CreateFile(s);
-//        fs->WriteToFile(i,"1", 1);
-//    }
     int cmd_;
     while(true) {
         cin >> cmd_;
